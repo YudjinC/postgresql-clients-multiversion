@@ -1,0 +1,85 @@
+{{- $scriptsConfigMap := printf "%s-scripts" (include "logical-backups.fullname" .) -}}
+
+{{- range $jobname, $job := .Values.dumpJobs.postgresql.jobs }}
+---
+apiVersion: app.itf.com/v1alpha1
+kind: Job
+metadata:
+  name: {{ $jobname }}
+spec:
+  successfulJobsHistoryLimit: {{ default 1 $job.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ default 3 $job.failedJobsHistoryLimit }}
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: itfj
+        app.kubernetes.io/component: pgdump
+        {{- if .jobLabels }}
+{{- .jobLabels | indent 8 }}
+        {{- end }}
+    spec:
+      backoffLimit: {{ default 0 $job.backoffLimit }}
+      completions: {{ default 1 $job.completions }}
+      parallelism: {{ default 1 $job.parallelism }}
+      template:
+        spec:
+          {{- if $.Values.dumpJobs.tolerations }}
+          tolerations: {{ $.Values.dumpJobs.tolerations | toYaml | nindent 10 }}
+          {{- end }}
+          {{- if $.Values.dumpJobs.imagePullSecrets }}
+          imagePullSecrets: {{ $.Values.dumpJobs.imagePullSecrets | toYaml | nindent 10 }}
+          {{- end }}
+          containers:
+          - name: postgresql
+            image: {{ $.Values.dumpJobs.postgresql.params.image }}
+            env:
+            - name: JOBCHAIN_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['meta.itf.jc/jobchain-uuid']
+            - name: JOBCHAIN_TIMESTAMP
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['meta.itf.jc/jobchain-timestamp']
+            - name: TZ
+              value: "Europe/Moscow"
+            - name: DUMP_PATH
+              value: "{{ $.Values.dumpJobs.postgresql.dumpPath }}"
+            - name: PGDATABASE
+              value: "{{ $job.db }}"
+            - name: PGHOST
+              value: "{{ ($job.params).host | default $.Values.dumpJobs.postgresql.params.host | default "" }}"
+            - name: PGPORT
+              value: "{{ ($job.params).port | default $.Values.dumpJobs.postgresql.params.port | default "5432" }}"
+            - name: PGUSER
+              value: "{{ ($job.params).user | default $.Values.dumpJobs.postgresql.params.user | default "" }}"
+            - name: PGPASSWORD
+              {{- if ($job.params).secretPassword  }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $job.params.secretPassword.name }}
+                  key: {{ $job.params.secretPassword.key }}
+              {{- else }}
+              value: "{{ ($job.params).password | default $.Values.dumpJobs.postgresql.params.password | default "" }}"
+              {{- end }}
+            command:
+{{ $.Values.dumpJobs.postgresql.params.command | toYaml | indent 12}}
+            volumeMounts:
+            - mountPath: "{{ $.Values.dumpJobs.persistence.podMountPath }}"
+              name: dumps
+              {{- if $.Values.dumpJobs.persistence.podSubPath }}
+              subPath: {{ $.Values.dumpJobs.persistence.podSubPath }}
+              {{- end }}
+            - mountPath: "/scripts"
+              name: scripts
+          restartPolicy: "Never"
+          volumes:
+          - name: dumps
+            persistentVolumeClaim:
+              claimName: {{ $.Values.dumpJobs.persistence.claimName }}
+          - name: scripts
+            configMap:
+              name: {{ $scriptsConfigMap }}
+              defaultMode: 0777
+
+{{- end }}

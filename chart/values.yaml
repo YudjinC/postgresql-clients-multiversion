@@ -1,0 +1,126 @@
+# commonScripts:
+#   somescript.sh: |
+#     echo "hello"
+
+dumpJobs:
+  persistence:
+    podMountPath: /dump
+    podSubPath: dumps
+    claimName: sc-name
+  # tolerations:
+  #   - key: "node.kubernetes.io/unschedulable"
+  #     operator: "Exists"
+  #     effect: "NoSchedule"
+  # imagePullSecrets:
+  #   - name: docker-registry-parking
+  postgresql:
+    dumpPath: "/dump"
+    script: |
+      set -e
+      TS=$(date --date "$JOBCHAIN_TIMESTAMP" +%d.%m.%Y-%H.%M.%S)
+      
+      FULL_VERSION=$(psql -U ${PGUSER} -qtA -c "SELECT setting FROM pg_settings WHERE name LIKE 'server_version'")
+      case "$FULL_VERSION" in
+      9.*)
+        PG_DUMP_VERSION=$(echo "$FULL_VERSION" | cut -d '.' -f1,2)
+        ;;
+      *)
+        PG_DUMP_VERSION=$(echo "$FULL_VERSION" | cut -d '.' -f1)
+        ;;
+      esac
+
+      /usr/lib/postgresql/${PG_DUMP_VERSION}/bin/pg_dump \
+      --compress=5 \
+      --format=c \
+      --verbose \
+      --file=${DUMP_PATH}/${PGDATABASE}-${TS}-pgV${PG_DUMP_VERSION}.dump
+    params:
+      image: docker-registry.fitdev.ru:15650/k8s/postgres-client-multiversion:1.1.0
+      host: ""
+      port: 5432
+      user: postgres
+      password: ""
+      command:
+      - sh
+      - -c
+      - |
+        /scripts/pgdump.sh
+    jobs: {}
+      # sms-sender-emp-dump:
+      #   db: mskparking_sms_sender_emp
+      # sms-acceptor-emp-dump:
+      #   db: mskparking_sms_acceptor_emp
+      #   params:
+      #     host: private
+      #     port: private
+      #     user: private
+      #     password: private
+      # ehd-integration-dump:
+      #   db: ehd_integration
+      #   params:
+      #     host: common-ehd-integration-postgresql
+      #     user: postgres
+      #     secretPassword:
+      #       name: postgres.common-ehd-integration-postgresql.credentials.postgresql.acid.zalan.do
+      #       key: password
+
+persistence: {}
+  # name: sc-name
+  # storageClass: sc-storageclass
+  # size: 10Mi
+
+jobs:
+  - name: postgres-db-job
+    image: "docker-registry.fitdev.ru:15500/docker-io/postgres:12.8"
+    persistence:
+      name: dbdump-pvc
+      podMountPath: /dump
+      claimName: dbdump
+    imagePullSecrets:
+    - name: docker-registry-parking
+    securityContext:
+      allowPrivilegeEscalation: false
+      runAsUser: 0
+    env:
+    - name: PGPASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: secret
+          key: password
+    command:
+    - sh
+    - -c
+    - |
+      pg_dump \
+      --dbname postgres-db \
+      --host postgres-svc \
+      --user postgres \
+      -Fc --verbose > \
+      /dump/pgsql-postgres-db-$(date +%Y_%m_%d-%H:%M:%S).dump
+
+  - name: clean-job
+    image: docker-registry.fitdev.ru:15500/docker-io/busybox
+    successfulJobsHistoryLimit: 1
+    failedJobsHistoryLimit: 1
+    persistence:
+      name: dbdump-pvc
+      podMountPath: /dump
+      claimName: dbdump
+    extraVolumes:
+      []
+    extraVolumeMounts:
+      []
+    env:
+    - name: TZ
+      value: Europe/Moscow
+    args:
+    - sh
+    - -c
+    - find /dump/ -type f -mtime +9 -delete
+
+jobchain:
+  jobs:
+    - postgres-db-job
+    - clean-job
+  schedule:
+    "*/2 * * * *"

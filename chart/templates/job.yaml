@@ -1,0 +1,100 @@
+{{- $scriptsConfigMap := printf "%s-scripts" (include "logical-backups.fullname" .) -}}
+
+{{- range $.Values.jobs }}
+---
+apiVersion: app.itf.com/v1alpha1
+kind: Job
+metadata:
+  name: {{ .name }}
+spec:
+  successfulJobsHistoryLimit: {{ default 1 .successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ default 3 .failedJobsHistoryLimit }}
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: itfj
+        app.kubernetes.io/component: job
+        {{- if .jobLabels }}
+{{- .jobLabels | indent 8 }}
+        {{- end }}
+    spec:
+      backoffLimit: {{ default 0 .backoffLimit }}
+      completions: {{ default 1 .completions }}
+      parallelism: {{ default 1 .parallelism }}
+      template:
+        spec:
+          {{- if .tolerations }}
+          tolerations:
+{{ .tolerations | toYaml | indent 10 }}
+          {{- end }}
+          {{- if .imagePullSecrets }}
+          imagePullSecrets:
+{{ .imagePullSecrets | toYaml | indent 10 }}
+          {{- end }}
+          containers:
+          - name: {{ .name }}
+            image: {{ .image }}
+            env:
+            - name: JOBCHAIN_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['meta.itf.jc/jobchain-uuid']
+            - name: JOBCHAIN_TIMESTAMP
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['meta.itf.jc/jobchain-timestamp']
+            {{- if .env }}
+{{ .env | toYaml | indent 12 }}
+            {{- end }}
+            {{- if .command }}
+            command:
+{{ .command | toYaml | indent 12 }}
+            {{- end }}
+            {{- if .args }}
+            args:
+{{ .args | toYaml | indent 12 }}
+            {{- end }}
+            {{- if .securityContext }}
+            securityContext:
+{{ .securityContext | toYaml | indent 14 }}
+            {{- end }}
+            volumeMounts:
+            {{- if .persistence }}
+            - mountPath: "{{ .persistence.podMountPath }}"
+              name: {{ .persistence.name }}
+              {{- if .persistence.podSubPath }}
+              subPath: {{ .persistence.podSubPath }}
+              {{- end }}
+            {{- end }}
+            {{- if $.Values.commonScripts }}
+            - mountPath: "/scripts"
+              name: scripts
+            {{- end }}
+            {{- if .extraVolumeMounts }}
+{{ .extraVolumeMounts | toYaml | indent 12 }}
+            {{- end }}
+          restartPolicy: {{ default "Never" .restartPolicy }}
+          {{- if .hostNetwork }}
+          hostNetwork: {{ .hostNetwork }}
+          {{- end }}
+          {{- if .affinity }}
+          affinity:
+{{ .affinity | toYaml | indent 12 }}
+          {{- end }}
+          volumes:
+          {{- if .persistence }}
+          - name: {{ .persistence.name }}
+            persistentVolumeClaim:
+              claimName: {{ .persistence.claimName }}
+          {{- end }}
+          {{- if $.Values.commonScripts }}
+          - name: scripts
+            configMap:
+              name: {{ $scriptsConfigMap }}
+              defaultMode: 0777
+          {{- end }}
+          {{- if .extraVolumes }}
+{{ .extraVolumes | toYaml | indent 10 }}
+          {{- end }}
+
+{{- end }}

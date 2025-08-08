@@ -1,0 +1,10 @@
+
+apiVersion: v1
+appVersion: "0.2"
+description: Sequential execution of jobs based on itf-jobchain-operator
+home: https://gitdev.techincity.ru
+maintainers:
+  - email: Evgeniy.Borzilov@gorparkovki.ru
+    name: Ujin
+name: logical-backups
+version: "1.0.0"

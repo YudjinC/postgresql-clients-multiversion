@@ -1,0 +1,11 @@
+
+{{- $name := printf "%s" (include "logical-backups.fullname" .) -}}
+apiVersion: app.itf.com/v1alpha1
+kind: JobChain
+metadata:
+  name: {{ $name }}
+spec:
+  jobs:
+{{ .Values.jobchain.jobs | toYaml | indent 2 }}
+  schedule: "{{ .Values.jobchain.schedule }}"
+  allowFailure: {{ default false .Values.jobchain.allowFailure }}
