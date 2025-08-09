@@ -1,3 +1,3 @@
 #!/usr/bin/env sh
-docker build . -t docker-registry.fitdev.ru:15650/k8s/postgres-client-multiversion:1.0.0
-docker push docker-registry.fitdev.ru:15650/k8s/postgres-client-multiversion:1.0.0
+docker build . -t ujinb/postgres-client-multiversion:1.0.0
+docker push ujinb/postgres-client-multiversion:1.0.0
